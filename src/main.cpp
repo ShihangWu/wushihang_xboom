@@ -13,12 +13,12 @@
 #define SM3_PIN 19    // SM3 按键引脚
 #define SM4_PIN 21    // SM4 按键引脚
 
-#define MATERFALL_OUTPUT_PIN 4   // 流水灯输出引脚
+#define WATERFALL_OUTPUT_PIN 4   // 流水灯输出引脚
 #define BUZZER_PIN 2    // 蜂鸣器引脚
 #define START_BUTTON_PIN SM1_PIN    // 开始按钮
 #define STOP_BUTTON_PIN SM2_PIN    // 停止按钮
 #define RESET_BUTTON_PIN SM3_PIN    // 复位按钮
-#define MATERFALL_INPUT_PIN SM4_PIN   // 流水灯输入触发按钮
+#define WATERFALL_INPUT_PIN SM4_PIN   // 流水灯输入触发按钮
 
 #define BOOM_TIME 10    // 倒计时秒数 (10秒)
 
@@ -71,8 +71,8 @@ void pinInit() {
     pinMode(START_BUTTON_PIN, INPUT_PULLUP);
     pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
     pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
-    pinMode(MATERFALL_INPUT_PIN, INPUT_PULLUP);
-    pinMode(MATERFALL_OUTPUT_PIN, OUTPUT);
+    pinMode(WATERFALL_INPUT_PIN, INPUT_PULLUP);
+    pinMode(WATERFALL_OUTPUT_PIN, OUTPUT);
 
     digitalWrite(BUZZER_PIN, LOW); // 初始关闭蜂鸣器
 }
@@ -114,51 +114,68 @@ void OLED_Display() {
     OLED.println(displayTime, 1); // 保留一位小数
 
     OLED.print("LED Status: ");
-    OLED.println(LED ? "ON" : "OFF");
+    OLED.println(LED ? "OFF" : "ON");
 
     OLED.display(); // 推送显示
 }
 
 // --- 主要逻辑：按键控制、蜂鸣器和流水灯 ---
 void X_BOOM_Server() {
-    // 流水灯触发按钮
-    if (digitalRead(MATERFALL_INPUT_PIN) == LOW) {
+    // 流水灯触发按钮（只有在未启动倒计时时才允许手动操作）
+    if (!isStarted && digitalRead(WATERFALL_INPUT_PIN) == LOW) {
         LED = !LED;
-        digitalWrite(MATERFALL_OUTPUT_PIN, LED);
-        Serial.println("流水灯开启");
+        digitalWrite(WATERFALL_OUTPUT_PIN, LED);
+        Serial.println(LED == LOW ? "流水灯开启（手动）" : "流水灯关闭（手动）");
         delay(500); // 简单防抖
     }
 
-    // 启动倒计时
-    if (digitalRead(START_BUTTON_PIN) == LOW && !isStarted) {  // 修正：lisStarted -> !isStarted
+
+    // 启动倒计时，自动开启流水灯
+    if (digitalRead(START_BUTTON_PIN) == LOW && !isStarted) {
         isStarted = 1;
-        timerAlarmEnable(tim1); // 启用定时器
+        timerAlarmEnable(tim1); // 启动定时器
+        LED = LOW;  // 自动开启流水灯（LED 亮）
+        digitalWrite(WATERFALL_OUTPUT_PIN, LED);
         Serial.println("倒计时开始");
-        delay(500); // 简单防抖
+        Serial.println("流水灯开启（自动）");
+        delay(500); // 防抖
     }
     
     // 暂停倒计时
     if (digitalRead(STOP_BUTTON_PIN) == LOW && isStarted) {
-        timerAlarmDisable(tim1);
-        isStarted = 0;
+        timerAlarmDisable(tim1);      // 停止定时器中断
+        isStarted = 0;                // 更新倒计时标志为未启动
+        LED = HIGH;                   // 关闭流水灯（可选）
+        digitalWrite(WATERFALL_OUTPUT_PIN, LED);
         Serial.println("倒计时停止");
-        delay(500);
+        Serial.println("流水灯关闭（自动）");
+        delay(500);                   // 简单防抖
     }
+
     
     // 重置倒计时
     if (digitalRead(RESET_BUTTON_PIN) == LOW) {
-        timeCount = BOOM_TIME;
-        isStarted = 0;
+        timeCount = BOOM_TIME;        // 恢复倒计时时长
+        isStarted = 0;                // 重置状态
         digitalWrite(BUZZER_PIN, LOW); // 关闭蜂鸣器
-        timerAlarmDisable(tim1); // 停止计时器
+        timerAlarmDisable(tim1);      // 停止定时器
+        boomStatus = 0;               // 清除爆炸状态标志
+        LED = HIGH;                   // 关闭流水灯
+        digitalWrite(WATERFALL_OUTPUT_PIN, LED);
         Serial.println("倒计时复位");
-        delay(500);
+        Serial.println("流水灯关闭（自动）");
+        delay(500);                   // 防抖
     }
 
-    // 倒计时结束，蜂鸣器响
-    if (timeCount < 0.1) {
-        timerAlarmDisable(tim1); // 停止定时器
+
+    // 倒计时结束触发蜂鸣器（串口助手只打印一次），自动关闭流水灯
+    if (timeCount < 0.1 && boomStatus == 0) {
+        boomStatus = 1;                // 标记已响
+        timerAlarmDisable(tim1);       // 停止定时器
         digitalWrite(BUZZER_PIN, HIGH); // 打开蜂鸣器
         Serial.println("蜂鸣器响");
+        LED = HIGH;
+        digitalWrite(WATERFALL_OUTPUT_PIN, LED);
+        Serial.println("流水灯关闭（自动）");
     }
 }
